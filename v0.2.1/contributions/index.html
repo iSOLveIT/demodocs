@@ -427,9 +427,50 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#code-linting" class="md-nav__link">
-    Code linting
+  <a href="#first-things-to-check" class="md-nav__link">
+    First things to check
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting-up-the-ci-system" class="md-nav__link">
+    Setting-up the CI system
+  </a>
+  
+    <nav class="md-nav" aria-label="Setting-up the CI system">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#introduction" class="md-nav__link">
+    Introduction
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#explaination-of-ci-to-update-tags-with-changes" class="md-nav__link">
+    Explaination of CI to update tags with changes
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#explaination-of-ci-to-set-new-docs-release-as-latest-version" class="md-nav__link">
+    Explaination of CI to set new docs release as latest version
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conclusion" class="md-nav__link">
+    Conclusion
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -467,9 +508,110 @@
 
 
 <h1 id="contributors-guidelines">Contributors Guidelines</h1>
-<h2 id="code-linting">Code linting</h2>
-<p>Use <code>make format</code> to run black on your code, which should fix most of possible linter errors.</p>
-<p>To run all our configured linter, run <code>make lint</code>.</p>
+<h2 id="first-things-to-check">First things to check</h2>
+<ol>
+<li>First you must add <code>mike</code> as a plugin in <em>mkdocs.yml</em> to ensure MkDocs recognises that you are using <code>mike</code> for versioning.</li>
+</ol>
+<pre><code class="language-yml">plugins:
+  - mike
+</code></pre>
+<ol>
+<li>
+<p>Added a <em>requirements.txt</em> file to the repository files which is used in the GitHub Actions workflow to install needed dependencies.</p>
+</li>
+<li>
+<p>Enable GitHub Actions on repository</p>
+</li>
+</ol>
+<h2 id="setting-up-the-ci-system">Setting-up the CI system</h2>
+<h3 id="introduction">Introduction</h3>
+<p>The idea around the CI was implemented using Git tags and GitHub releases.</p>
+<p><em>Major Changes</em>
+So anytime you make major improvements to the documentation and have committed those changes, you run the following commands:</p>
+<pre><code class="language-bash">
+git tag v*.*.* # create a tag
+git push origin v*.*.* # push changes to the tag not the branch
+
+</code></pre>
+<p>This will trigger the CI workflow named as <code>CI to update tags with changes</code> which we will later discuss.</p>
+<p>After that, you will create a new release on GitHub with the latest tag you pushed.
+This will also trigger the CI workflow named as <code>CI to set new docs release as latest version</code> which we will later discuss.</p>
+<p><em>Minor Changes</em>
+When you make minor changes such as updating a document in an existing tag, you run the following commands:</p>
+<pre><code class="language-bash">
+git tag -f {existing_tagname}   # update existing tag
+git push -f origin {existing_tagname} # push changes to the existing tag
+
+</code></pre>
+<p>This will trigger the CI workflow named as <code>CI to update tags with changes</code>.</p>
+<p><em>NOTE</em>: Releases are created only when you plan on rolling out a new version of documentation.</p>
+<h3 id="explaination-of-ci-to-update-tags-with-changes">Explaination of <code>CI to update tags with changes</code></h3>
+<p>Below is an explaination of the code in <em>ci.yml</em> file:</p>
+<pre><code class="language-yml">
+name: CI to update tags with changes 
+on:
+  push:     # the workflow is triggered by push events
+    tags:
+      - 'v*.*.*'    # but the workflow is triggered by push events which occur on tags that have the format `v*.*.*`, e.g. v1.2.0.
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+      - name: Install docs dependencies
+        run: pip install -r requirements.txt    # Install the python dependencies needed from the requirements.txt file
+      - name: Fetch GH-PAGES
+        run: git fetch origin gh-pages --depth=1    # We need to manually fetch the gh-pages branch so that we don't get issues since our CI doesn't have a local instance of the documentation branch to commit to
+      - name: Setup Git User
+        run: |
+          git config --global user.name Docs deploy
+          git config --global user.email docs@dummy.bot.com
+      - name: Get the tag version
+        id: get_version
+        run: echo ::set-output name=VERSION::$(echo $GITHUB_REF | cut -d / -f 3)    # We get the tag name (e.g. v0.1.0) from the $GITHUB_REF environment variable which contains something like this: &quot;refs/tags/v0.1.0&quot;
+      - name: Update the latest doc version
+        run:  mike deploy ${{ steps.get_version.outputs.VERSION }} -b gh-pages --push   # Deploy the new version or updates of an existing version to the documentation branch (in this case: gh-pages). This will add the tag as a link in the version dropdown 
+
+
+</code></pre>
+<h3 id="explaination-of-ci-to-set-new-docs-release-as-latest-version">Explaination of <code>CI to set new docs release as latest version</code></h3>
+<p>Below is an explaination of the code in <em>release.yml</em> file:</p>
+<pre><code class="language-yml">
+name: CI to set new docs release as latest version
+on:
+  release:  # the workflow is triggered by release events (i.e. when a new release is creted)
+    tags:
+      - 'v*.*.*' # but the workflow is triggered by release events which occur on tags that have the format `v*.*.*`, e.g. v1.2.0.
+    types: [published]  # also the workflow is triggered by release events which have the type published.
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+      - name: Install docs dependencies
+        run: pip install -r requirements.txt    # Install the python dependencies needed from the requirements.txt file
+      - name: Fetch GH-PAGES
+        run: git fetch origin gh-pages --depth=1    # We need to manually fetch the gh-pages branch so that we don't get issues since our CI doesn't have a local instance of the documentation branch to commit to
+      - name: Setup Git User
+        run: |
+          git config --global user.name Docs deploy
+          git config --global user.email docs@dummy.bot.com
+      - name: Set new doc version as latest
+        run:  mike alias -b gh-pages --update-aliases ${{ github.event.release.tag_name }} latest --push    # When a new release is created, we presume it to be the latest version so we update the `latest` alias to point to this new version
+      - name: Change default latest version
+        run:  mike set-default latest --push    # We set the default documentation version that people should be redirected to as `latest`
+
+</code></pre>
+<h3 id="conclusion">Conclusion</h3>
+<p>The two workflow files might still need improvement but at this point they can handle versioning for your documentation very well.</p>
 
               
             </article>
